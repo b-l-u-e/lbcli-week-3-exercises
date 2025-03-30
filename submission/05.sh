@@ -21,8 +21,8 @@ inputs=$(jq -n \
   --arg txid "$txid" \
   '[{"txid": $txid, "vout": 0}, {"txid": $txid, "vout": 1}]')
 
-vout_0=$(echo $decoded | jq -r '.vout[0].value')
-vout_1=$(echo $decoded | jq -r '.vout[1].value')
+vout_0=$(echo "$decoded" | jq -r '.vout[0].value')
+vout_1=$(echo "$decoded" | jq -r '.vout[1].value')
 
 # Total inputs
 total_input=$(echo $vout_0 + $vout_1 | bc)
@@ -33,7 +33,7 @@ change=$(echo "$total_input - $amount_to_send - $fee" | bc)
 change=$(printf "%.8f" "$change")
 # echo "change: $change"
 
-change_address=$(bitcoin-cli -regtest -rpcwallet=btrustwallet getrawchangeaddress )
+change_address=$(echo "$decoded" | jq -r '.vout[1].scriptPubKey.address')
 # echo $change_address
 
 outputs=$(jq -n \
@@ -41,7 +41,8 @@ outputs=$(jq -n \
   --argjson amount "$amount_to_send" \
   --arg change "$change_address" \
   --argjson change_amt "$change" \
-  '{($recipient): $amount, ($change): $change_amt}')
+  '[$recipient, $change] | { (.[0]): $amount, (.[1]): $change_amt }')
+
 
 # echo $outputs
 
