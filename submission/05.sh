@@ -6,46 +6,44 @@ transaction="01000000000101c8b0928edebbec5e698d5f86d0474595d9f6a5b2e4e3772cd9d10
 
 # Decode UTXO to determine spendable outputs
 decoded=$(bitcoin-cli -regtest -rpcwallet=btrustwallet decoderawtransaction $transaction)
-# echo $decoded
+
+if [ -z "$decoded" ]; then
+  echo "Error: Failed to decode raw transaction."
+  exit 1
+fi
+
+# echo "decode transaction: $decoded"
 
 recipient="2MvLcssW49n9atmksjwg2ZCMsEMsoj3pzUP"
-fee=0.0001
 amount_to_send=0.2
 
 # txid from raw transaction
-txid=$(echo $decoded | jq -r '.txid')
-# echo $txid
+decoded_txid=$(echo $decoded | jq -r '.txid')
+# echo "decoded_txid: $decoded_txid"
 
-# Inputs: both vout 0 and 1
-inputs=$(jq -n \
-  --arg txid "$txid" \
-  '[{"txid": $txid, "vout": 0}, {"txid": $txid, "vout": 1}]')
+# Extract vout and value for the first UTXO
+utxo_vout_1=$(echo "$decoded" | jq -r '.vout[0].n')
+# utxo_vout_1_value=$(echo "$decoded" | jq -r '.vout[0].value')
 
-vout_0=$(echo "$decoded" | jq -r '.vout[0].value')
-vout_1=$(echo "$decoded" | jq -r '.vout[1].value')
+# echo "utxo_vout_1: $utxo_vout_1"
+# echo "utxo_vout_1_value: $utxo_vout_1_value"
 
-# Total inputs
-total_input=$(echo $vout_0 + $vout_1 | bc)
-total_input=$(printf "%.8f" "$total_input")
-# echo $total_input
+# Extract vout and value for the second UTXO
+utxo_vout_2=$(echo "$decoded" | jq -r '.vout[1].n')
+# utxo_vout_2_value=$(echo "$decoded" | jq -r '.vout[1].value')
 
-change=$(echo "$total_input - $amount_to_send - $fee" | bc)
-change=$(printf "%.8f" "$change")
-# echo "change: $change"
+# echo "utxo_vout_2: $utxo_vout_2"
+# echo "utxo_vout_2_value: $utxo_vout_2_value"
 
-change_address=$(echo "$decoded" | jq -r '.vout[1].scriptPubKey.address')
-# echo $change_address
+# Construct JSON for inputs
+inputs_json=$(jq -n --arg txid "$decoded_txid" --argjson vout1 "$utxo_vout_1" --argjson vout2 "$utxo_vout_2" \
+  '[{ "txid": $txid, "vout": $vout1 }, { "txid": $txid, "vout": $vout2 }]')
 
-outputs=$(jq -n \
-  --arg recipient "$recipient" \
-  --argjson amount "$amount_to_send" \
-  --arg change "$change_address" \
-  --argjson change_amt "$change" \
-  '[$recipient, $change] | { (.[0]): $amount, (.[1]): $change_amt }')
+# Construct JSON for outputs
+outputs_json=$(jq -n --arg recipient "$recipient" --arg amount "$amount_to_send" \
+  '{ ($recipient): ($amount | tonumber) }')
 
+# Create PSBT with the constructed JSON
+psbt=$(bitcoin-cli -regtest -named createpsbt inputs="$inputs_json" outputs="$outputs_json")
 
-# echo $outputs
-
-psbt=$(bitcoin-cli -regtest -rpcwallet=btrustwallet createpsbt "$inputs" "$outputs")
-
-echo $psbt
+echo "$psbt"
